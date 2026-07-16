@@ -1,0 +1,210 @@
+---
+title: "Workshop3"
+output: html_document
+date: "2026-07-08"
+---
+
+make raw_data wd and make symbolic link 
+```bash
+ln -s /pvol/data/metagenome_assembly/reads_R10_0.5.fastq.gz raw_reads.fastq.gz
+```
+examine the read length distribution in our input data
+```bash
+zcat raw_data/raw_reads.fastq.gz | head -n 40000 | bioawk -c fastx '{print $name,length($seq)}' > read_lengths.txt
+```
+broken pipe > head only reads first 40000 lines so zip file closes 
+
+visualise these read lengths
+```{r}
+library(tidyverse)
+
+rl_data <- read_tsv("read_lengths.txt",col_names = c("id","length"), show_col_types = FALSE)
+
+ggplot(rl_data, aes(x=length/1000)) + 
+  geom_histogram(binwidth = 2) +
+  xlab("Read Length Kb") + ylab("Number of Reads")
+```
+Figure 1: Histogram of read lengths in the mock nanopore sequencing dataset
+
+
+Step 1: Rank all reads from longest to shortest
+Step 2: Create a new column with the cumulative sum of read lengths (starting from longest read).
+Step 3: Find the read at which the cumulative sum surpasses 50% of the total read volume (ie total sum of all read lengths)
+```{r}
+total_len <- sum(rl_data$length)
+
+rl_data %>% 
+  arrange(desc(length)) %>% 
+  mutate(cumsum = cumsum(length)) %>% 
+  filter(cumsum>total_len/2) %>% 
+  head(n=1)
+```
+
+save script and submit slurm  
+```bash 
+sbatch run_flye.sh
+```
+
+Look at slurm as running
+```bash
+tail -f slurm-365.out
+```
+Total length:   18296826
+        Fragments:      41
+        Fragments N50:  1866219
+        Largest frg:    4681059
+        Scaffolds:      0
+        Mean coverage:  12
+        
+What is the size and coverage of the largest contig in the assembly? 4681059
+
+Your assembly should contain at least one (probably several) large circular contigs. Based on size and coverage can you guess which contig corresponds to the genome of the most abundant species in our mock community? in bandage edge_40 has depth of 21.0x and 4681059bp matches Geitlerinema sp. PCC 7407 (4.7Mb and 44.5 proportion of reads)
+
+look at mock community
+```bash
+ls /pvol/data/mg/refs/*.fna
+```
+create gc.awk file to calculate GC content
+print the GC content and contig lengths for all chromosomes in mock community 
+```bash
+cat /pvol/data/mg/refs/*.fna | bioawk -c fastx -f gc.awk
+```
+
+CP003591.1      4681111 0.584631
+CP045504.1      4388462 0.636383
+CP045505.1      51725   0.578966
+AP024165.1      3168162 0.44373
+AP024166.1      1553697 0.438144
+AP024167.1      320083  0.418301
+AP024168.1      221076  0.434733
+CP098033.1      1819821 0.445875
+CP098034.1      3294375 0.447314
+CP098035.1      36224   0.485231
+NZ_CP053351.1   4560973 0.34633
+
+Locate two circular chromosomes for Vibrio alfacsensis in bandage. Use the outputs from gc.awk to help with this. 
+Vibrio alfacsensis has 44 GC content
+AP024165.1      3168162 0.44373
+CP098033.1      1819821 0.445875
+CP098034.1      3294375 0.447314
+in bandage edge_9 (3165984bp, depth 15.0x) and edge_39 (1551213bp, depth 15.0x)
+
+make assembly_check wd 
+Use your gc.awk script to print GC and lengths for the assembly
+```bash
+cat ../flye1/mock/assembly.fasta | bioawk -c fastx -f ../gc.awk
+```
+
+send outputs to a file called assembly.gc.tsv.
+```bash
+cat ../flye1/mock/assembly.fasta | bioawk -c fastx -f ../gc.awk > assembly.gc.tsv
+```
+
+read GC content in assembly.gc.tsv and coverage depth in the assembly_info.txt
+```{r}
+gc <- read_tsv("assembly_check/assembly.gc.tsv",col_names = c("#seq_name","length","GC"))
+info <- read_tsv("flye1/mock/assembly_info.txt") 
+```
+
+join data sets 
+```{r}
+gc_info <- info %>% 
+  left_join(gc)
+```
+
+```{r}
+gc_info %>% 
+  ggplot(aes(x=GC)) + geom_histogram() + ylab("Number of contigs")
+```
+Figure 2: Histogram of GC content values values for assembled contigs in a flye assembly of the mock community dataset.
+
+```{r}
+gc_info %>% 
+  filter(GC<0.8) %>% 
+  filter(cov.<25) %>% 
+  ggplot(aes(x=GC,y=cov.)) + geom_point(aes(size=length)) + ylab("Coverage depth")
+```
+Figure 3: Coverage and GC content of assembled contigs in the mock community assembly. Contig lengths are shown through point size.
+
+In the plot of GC versus coverage there is a cluster of contigs with high GC content (>60%) and coverage depth around 7.5x. Which species are these likely to belong to?
+Desulfovibrio sulfodismutans
+
+```{r}
+install.packages("ggrepel")
+```
+
+```{r}
+library(ggrepel)
+gc_info %>% 
+  filter(GC<0.8) %>% 
+  filter(cov.<25) %>% 
+  ggplot(aes(x=GC,y=cov.)) + geom_point(aes(size=length)) + geom_label_repel(aes(label=`#seq_name`))
+```
+Figure 4: Coverage and GC content of assembled contigs in the mock community assembly. Contig lengths are shown through point size. Only contigs with more than 25x coverage and less than 80% GC coverage are shown.
+
+calculate the total length of our reference sequences
+```bash 
+cat /pvol/data/mg/refs/*.fna | bioawk -c fastx -f gc.awk | awk '{sum+=$2}END{print sum}'
+```
+
+Calculate the total length of your assembly using R by taking the sum of the contig lengths column. What proportion of the reference sequence does this represent?
+
+```{r}
+#sum of the contig lengths column
+assembly_length <- sum(gc_info[,2])
+```
+
+```{r}
+#proportion of the reference sequence
+reference_length <- 24095709
+
+proportion <- assembly_length / reference_length
+proportion
+```
+
+make metabat wd
+Prepare an input file summarising read depth information for all contigs
+```bash
+cat ../flye1/mock/assembly_info.txt  | grep -v '#' | awk '{OFS="\t";print $1,$3}' > depths.txt
+```
+
+create a new version of the assembly file in which the contigs have the same order as those in the depths.txt file
+```bash
+cat depths.txt | awk '{print $1}' | xargs samtools faidx ../flye1/mock/assembly.fasta > assembly_ordered.fasta
+```
+
+run metabat 
+```bash
+metabat2 -i assembly_ordered.fasta -a depths.txt --cvExt -o bins/metabat --seed 5
+```
+
+inspect which contigs were grouped into which bin
+ ```bash
+grep '>' bins/*
+```
+
+make checkm/bins wd
+copy metabat/bins wd into checkm/bins
+```bash
+cp ../metabat/bins/metabat.*.fa bins/
+```
+include contig_39 (exluded from bins as longest)
+```bash
+samtools faidx ../flye1/mock/assembly.fasta contig_39 > bins/contig_39.fa
+```
+
+save script and submit slurm   
+```bash
+sbatch run_checkm.sh
+```
+
+Look at slurm as running
+```bash
+tail -f slurm-410.out
+```
+
+Which bin has the highest level of contamination? Why do you think this might be?
+bin 5 because it has replicate genes present indicating contamination 
+
+
+

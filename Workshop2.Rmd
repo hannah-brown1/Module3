@@ -1,0 +1,150 @@
+---
+title: "Workshop2_GenomeAssembly"
+output: html_document
+date: "2026-07-08"
+---
+
+Obtain Data 
+
+```bash 
+cat /pvol/data/amtp4/*_[012].fastq > amtp4.fastq
+```
+
+Run Assembly
+
+```bash 
+wtdbg2 -x ont -g 5m -t 4 -i amtp4.fastq -fo amtp4
+wtpoa-cns -t 4 -i amtp4.ctg.lay.gz -fo amtp4.ctg.fa
+```
+
+Assembly Stats
+```bash
+assembly-stats amtp4.ctg.fa
+```
+
+Run Assembly with bigger coverage 
+```bash
+cat /pvol/data/amtp4/*.fastq > amtp4_20x.fastq
+wtdbg2 -x ont -g 5m -t 4 -i amtp4_20x.fastq -fo amtp4_20x
+wtpoa-cns -t 4 -i amtp4_20x.ctg.lay.gz -fo amtp4_20x.ctg.fa
+```
+
+Assembly Stats for bigger coverage
+```bash
+assembly-stats amtp4_20x.fastq
+```
+
+Save script and submit slurm for small data set
+```bash 
+sbatch run_flye_small.sh
+```
+
+Look at slurm as running
+```bash
+tail -f slurm-326.out
+```
+
+Go into amtp4 and run assembly stats
+```bash 
+assembly-stats assembly.fasta
+```
+
+save script and submit slurm for large data set 
+```bash 
+sbatch run_flye_large.sh
+```
+
+Look at slurm as running
+```bash
+tail -f slurm-339.out
+```
+
+Go into amtp4_20x and run assembly stats
+```bash 
+assembly-stats assembly.fasta
+```
+
+Download (tick > more > export) assembly_graph.gfa for ampt4 and ampt4_x20 and look in bandage
+
+Create quast directory that has a flye and redbean folder
+mkdir quast
+mkdir flye_asm redbean_asm
+
+Look at the contig sizes in the flye assembly
+```bash
+cat ../flye/amtp4_20x/assembly.fasta | bioawk -c fastx '{print $name, length($seq)}' | sort -n -k2
+```
+
+Contig_3 and contig_15 are the largest in flye
+```bash
+samtools faidx ../flye/amtp4_20x/assembly.fasta contig_3 contig_15 > flye_asm/vibrio.fasta
+```
+
+Look at the contig sizes in the redbean assembly
+```bash
+cat ../redbean/amtp4_20x.ctg.fa | bioawk -c fastx '{print $name, length($seq)}' | sort -n -k2
+```
+ctg2 and ctg1 are the largest in redbean
+```bash
+samtools faidx ../redbean/amtp4_20x.ctg.fa ctg1 ctg2 > redbean_asm/vibrio.fasta
+```
+
+create symbloic link
+```bash
+ln ../flye/amtp4_20x.fastq .
+```
+
+create symbloic link with reference assembly
+```bash
+ln -s /pvol/data/amtp4/reference/vibrio .
+```
+
+run quast 
+```bash
+quast -o quast_vibrio redbean_asm/vibrio.fasta flye_asm/vibrio.fasta -L -t 4 --circos --glimmer -r vibrio/vibrio.fna --features  vibrio/vibrio.gff --nanopore amtp4_20x.fastq
+```
+
+create repeat wd and find repeat sequence in bandage
+copy and paste sequence into new text file with fasta heading 
+run prokka to see if it contains any transcribed sequences
+```bash
+prokka --outdir prokka --prefix repeat repeat.fasta
+```
+
+look at file produced for type of genomic features dominate this sequence
+```bash
+cat prokka/repeat.tsv
+```
+locus_tag       ftype   length_bp       gene    EC_number       COG     product
+IENBFMIL_00001  rRNA    1541                            16S ribosomal RNA
+IENBFMIL_00002  tRNA    75                              tRNA-Ile(gat)
+IENBFMIL_00003  tRNA    76                              tRNA-Ala(tgc)
+IENBFMIL_00004  rRNA    2888                            23S ribosomal RNA
+IENBFMIL_00005  rRNA    110                             5S ribosomal RNA
+
+link data 
+```bash
+ln -s ../quast/vibrio/vibrio.fna .
+```
+
+run minimap 
+```bash
+minimap2 -x map-ont vibrio.fna repeat.fasta > repeat_vs_genome.paf
+```
+
+examine alignment
+```bash 
+head  repeat_vs_genome.paf
+```
+
+extract start and end point
+```bash 
+cat repeat_vs_genome.paf | grep '^repe' | awk -F '\t' '{print $6,$8,$9}' > repeat_locations.bed
+```
+tig00000584 1268143 1273361
+tig00000584 1643463 1648640
+tig00000584 839536 844750
+tig00000584 1366073 1371288
+tig00000584 1083789 1089153
+tig00000584 1167863 1173221
+

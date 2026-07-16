@@ -134,7 +134,7 @@ tail -f slurm-561.out
 ```
 
 ```{r}
-gtdbtk_result <- read_tsv("gtdbtk/out/gtdbtk.summary.tsv")
+#gtdbtk_result <- read_tsv("gtdbtk/out/gtdbtk.summary.tsv")
 ```
 
 

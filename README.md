@@ -18,7 +18,6 @@ The repository contains scripts and outputs from the different stages of the met
 - Taxonomic classification using GTDB-Tk
 - Genome annotation
 - Functional pathway interpretation
-- Working with command-line bioinformatic tools
 
 ## Data
 
